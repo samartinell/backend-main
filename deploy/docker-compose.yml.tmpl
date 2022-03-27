@@ -1,0 +1,21 @@
+version: '3.5'
+services:
+  backend:
+    image: {{getenv "IMAGE" "IMAGE variable not set, please check ci log"}}
+    container_name: backend
+    environment:
+      - MONGO_URL=mongodb://mongo/backend
+      - DEPLOYMENT=production
+    networks:
+      - traefik
+      - mongo
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.entrypoints=https"
+      - "traefik.http.routers.backend.rule=Host(`greenlist.demo.adornis.de`)"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
+networks:
+  traefik:
+    external: true
+  mongo:
+    external: true

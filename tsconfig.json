@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "lib": ["esnext", "es7", "webworker", "es5", "es6", "dom", "dom.iterable"],
+    "baseUrl": "./src",
+    "outDir": "dist",
+    "importsNotUsedAsValues": "preserve",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "allowJs": true,
+    "strict": true,
+    "alwaysStrict": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "noImplicitAny": false,
+    "suppressImplicitAnyIndexErrors": true,
+    "inlineSources": true,
+    "declaration": true,
+    "declarationMap": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "exclude": ["./node_modules/*", "./dist/*", "./deploy/*"],
+  "include": ["./src"],
+  "compileOnSave": true
+}

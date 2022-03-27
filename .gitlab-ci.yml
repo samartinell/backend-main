@@ -1,0 +1,83 @@
+variables:
+  # build vars
+  DOCKERFILE: Dockerfile
+  DOCKER_BUILD_ROOT: .
+  REGISTRY_IMAGE: '$CI_REGISTRY/greenlist/backend/backend'
+  IMAGE: '$CI_REGISTRY/greenlist/backend/backend:$CI_COMMIT_REF_SLUG-$CI_COMMIT_SHORT_SHA'
+  NODE_VERSION: '16'
+  # deploy vars
+  DOCKER_COMPOSE_TEMPLATE: deploy/docker-compose.yml.tmpl
+  DOCKER_COMPOSE_PROJECT: backend
+  TARGET_HOST: ssh://adornis@89.58.39.219
+
+stages:
+  - build
+  - deploy
+
+build-image:
+  image: crazymax/docker:latest
+  stage: build
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  before_script:
+    - echo "logging into $CI_REGISTRY as $CI_REGISTRY_USER"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - echo "$CI_JOB_TOKEN" > .citoken
+  script:
+    - docker buildx build --build-arg NODE_VERSION="$NODE_VERSION" --secret id=citoken,src=.citoken --pull --progress=plain -f "$DOCKERFILE" -t "$IMAGE" "$DOCKER_BUILD_ROOT"
+    - docker tag "$IMAGE" "$REGISTRY_IMAGE:latest"
+    - docker tag "$IMAGE" "$REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+    - docker push "$IMAGE"
+    - docker push "$REGISTRY_IMAGE:latest"
+    - docker push "$REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+    - docker rmi "$IMAGE"
+    - docker rmi "$REGISTRY_IMAGE:latest"
+    - docker rmi "$REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+  only:
+    variables:
+      - $RUN == "always" || $CI_PIPELINE_SOURCE == "web"
+
+deploy:
+  image: docker:latest
+  stage: deploy
+  before_script:
+    - |
+      hasCompose=1
+      if [ -n "$TARGET_HOST" ]; then
+        echo "TARGET_HOST set, setting DOCKER_HOST to ${TARGET_HOST}"
+        export DOCKER_HOST="${TARGET_HOST}"
+        echo "Copying ssh credentials..."
+        mkdir ~/.ssh && chmod 700 ~/.ssh
+        cp "$SSH_PRIVATE_KEY" ~/.ssh/id_ed25519
+        echo "getting sshPort from TARGET_HOST..."
+        sshPort=$(echo "$TARGET_HOST" | cut -d':' -f3)
+        [ -n "$sshPort" ] && sshPort="-p $sshPort"
+        echo "getting sshHostAndUser from TARGET_HOST..."
+        sshHostAndUser=$(echo "$TARGET_HOST" | cut -d':' -f2 | cut -d'/' -f3)
+        echo "getting sshHost from sshHostAndUser..."
+        sshHost=$(echo "$sshHostAndUser" | cut -d'@' -f2)
+        ssh-keyscan "$sshPort" "$sshHost" > ~/.ssh/known_hosts
+        chmod 600 ~/.ssh/*
+        echo "Testing if remote host has docker-compose installed..."
+        ssh $sshPort $sshHostAndUser which docker-compose && hasCompose=0 || hasCompose=1
+        [ $hasCompose -eq 0 ] && echo "Remote host has docker-compose installed. Using single ssh connection instead of compose through DOCKER_HOST"
+      fi
+      [ -n "$VERBOSE" ] && VERBOSE="--verbose"
+      echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+      docker pull $IMAGE
+      apk add gomplate docker-compose yq jq
+  script:
+    - |
+      gomplate < "$DOCKER_COMPOSE_TEMPLATE" > docker-compose.yml
+      echo "Deploying following compose file:"
+      cat docker-compose.yml
+      if [ $hasCompose -eq 0 ]; then
+        docker-compose -p "$DOCKER_COMPOSE_PROJECT" $VERBOSE config | ssh $sshPort $sshHostAndUser docker-compose -f - -p "$DOCKER_COMPOSE_PROJECT" $VERBOSE up -d 
+      else
+        docker-compose -p "$DOCKER_COMPOSE_PROJECT" $VERBOSE up -d
+      fi
+  when: manual
+  dependencies: []
+  only:
+    variables:
+      - $RUN == "always" || $CI_PIPELINE_SOURCE == "web"
